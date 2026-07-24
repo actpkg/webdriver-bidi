@@ -122,4 +122,114 @@ mod component {
         ciborium::from_reader(&buf[..])
             .map_err(|e| ActError::internal(format!("cbor decode: {e}")))
     }
+
+    // ── Navigation / browsing contexts ────────────────────────────────────────
+
+    #[act_tool(description = "Navigate the current browsing context to a URL.")]
+    fn navigate(
+        /// Absolute URL to load.
+        url: String,
+        /// Readiness to wait for: none | interactive | complete. Default complete.
+        wait: Option<String>,
+        ctx: &mut ActContext<ToolMeta>,
+    ) -> ActResult<Cv> {
+        let id = require_session(ctx)?;
+        with_session_mut(&id, |c| {
+            gate(c, BrowserCap::Navigate)?;
+            let context = c.context().to_string();
+            let res = c
+                .send(
+                    "browsingContext.navigate",
+                    serde_json::json!({
+                        "context": context,
+                        "url": url,
+                        "wait": wait.unwrap_or_else(|| "complete".into()),
+                    }),
+                )
+                .map_err(ActError::internal)?;
+            json_to_cbor(&res)
+        })
+    }
+
+    #[act_tool(description = "List open browsing contexts (tabs/windows).", read_only)]
+    fn context_list(ctx: &mut ActContext<ToolMeta>) -> ActResult<Cv> {
+        let id = require_session(ctx)?;
+        with_session_mut(&id, |c| {
+            gate(c, BrowserCap::Read)?;
+            let res = c
+                .send("browsingContext.getTree", serde_json::json!({}))
+                .map_err(ActError::internal)?;
+            json_to_cbor(&res)
+        })
+    }
+
+    #[act_tool(
+        description = "Create a new browsing context and make it current for this session."
+    )]
+    fn context_create(
+        /// Context type: tab | window. Default tab.
+        r#type: Option<String>,
+        ctx: &mut ActContext<ToolMeta>,
+    ) -> ActResult<Cv> {
+        let id = require_session(ctx)?;
+        with_session_mut(&id, |c| {
+            gate(c, BrowserCap::Navigate)?;
+            let res = c
+                .send(
+                    "browsingContext.create",
+                    serde_json::json!({ "type": r#type.unwrap_or_else(|| "tab".into()) }),
+                )
+                .map_err(ActError::internal)?;
+            if let Some(new_ctx) = res.get("context").and_then(|v| v.as_str()) {
+                c.set_context(new_ctx.to_string());
+            }
+            json_to_cbor(&res)
+        })
+    }
+
+    #[act_tool(description = "Close a browsing context. Defaults to the current one.")]
+    fn context_close(
+        /// Context id to close. Defaults to the session's current context.
+        context: Option<String>,
+        ctx: &mut ActContext<ToolMeta>,
+    ) -> ActResult<Cv> {
+        let id = require_session(ctx)?;
+        with_session_mut(&id, |c| {
+            gate(c, BrowserCap::Navigate)?;
+            let target = context.unwrap_or_else(|| c.context().to_string());
+            let res = c
+                .send(
+                    "browsingContext.close",
+                    serde_json::json!({ "context": target }),
+                )
+                .map_err(ActError::internal)?;
+            json_to_cbor(&res)
+        })
+    }
+
+    #[act_tool(
+        description = "Capture a PNG screenshot of the current browsing context.",
+        read_only
+    )]
+    fn screenshot(ctx: &mut ActContext<ToolMeta>) -> ActResult<Vec<u8>> {
+        let id = require_session(ctx)?;
+        with_session_mut(&id, |c| {
+            gate(c, BrowserCap::Read)?;
+            let context = c.context().to_string();
+            let res = c
+                .send(
+                    "browsingContext.captureScreenshot",
+                    serde_json::json!({ "context": context }),
+                )
+                .map_err(ActError::internal)?;
+            let b64 = res
+                .get("data")
+                .and_then(|v| v.as_str())
+                .ok_or_else(|| ActError::internal("screenshot response had no data field"))?;
+            use base64::Engine;
+            base64::engine::general_purpose::STANDARD
+                .decode(b64)
+                .map_err(|e| ActError::internal(format!("bad base64 screenshot: {e}")))
+        })
+    }
 }
