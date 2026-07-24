@@ -1,6 +1,7 @@
 use act_sdk::prelude::*;
 
 pub mod addr;
+pub mod proto;
 
 #[act_component]
 mod component {
