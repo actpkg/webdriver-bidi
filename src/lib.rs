@@ -1,6 +1,7 @@
 use act_sdk::prelude::*;
 
 pub mod addr;
+pub mod caps;
 pub mod demux;
 pub mod logbuf;
 pub mod proto;
