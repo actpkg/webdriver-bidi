@@ -29,5 +29,36 @@ pack: build
 unit:
     cargo test --target x86_64-unknown-linux-gnu
 
-test: pack
-    {{act}} call {{wasm}} --help
+test: unit pack
+    #!/usr/bin/env bash
+    set -euo pipefail
+    (cd tests/mock-bidi && npm install --silent)
+    BIDI_PORT=9222
+    PORT=$BIDI_PORT node tests/mock-bidi/server.mjs &
+    MOCK=$!
+    SA_FULL="{\"host\":\"127.0.0.1\",\"port\":$BIDI_PORT}"
+    SA_RO="{\"host\":\"127.0.0.1\",\"port\":$BIDI_PORT,\"allow\":[\"navigate\",\"read\"]}"
+    {{act}} run {{wasm}} --http --listen "{{addr}}" --allow wasi:sockets --session-args "$SA_FULL" &
+    PID=$!
+    {{act}} run {{wasm}} --http --listen "{{addr2}}" --allow wasi:sockets --session-args "$SA_RO" &
+    PID2=$!
+    trap "kill $PID $PID2 $MOCK 2>/dev/null || true" EXIT
+    curl --retry 60 --retry-connrefused --retry-delay 1 -fsS -o /dev/null {{baseurl}}/info
+    curl --retry 60 --retry-connrefused --retry-delay 1 -fsS -o /dev/null {{baseurl2}}/info
+    # --jobs 1 is required, not incidental: every file shares one session-of-1
+    # server, and the console buffer is session state. Under hurl's default
+    # parallel execution, one file's commands generate log events that race with
+    # another file's "buffer is now empty" assertion.
+    {{hurl}} --test --jobs 1 --variable "baseurl={{baseurl}}" e2e/info.hurl e2e/list_tools.hurl e2e/dom.hurl e2e/navigate_console.hurl
+    {{hurl}} --test --jobs 1 --variable "baseurl2={{baseurl2}}" e2e/caps_denied.hurl
+
+# Opt-in: requires a local Chromium. Not run in CI.
+test-browser: pack
+    #!/usr/bin/env bash
+    set -euo pipefail
+    chromium --headless --remote-debugging-port=9222 --no-sandbox &
+    BROWSER=$!
+    trap "kill $BROWSER 2>/dev/null || true" EXIT
+    sleep 2
+    {{act}} call {{wasm}} navigate --args '{"url":"https://example.com"}' \
+      --allow wasi:sockets --session-args '{"host":"127.0.0.1","port":9222}'
