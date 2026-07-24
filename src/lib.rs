@@ -232,4 +232,221 @@ mod component {
                 .map_err(|e| ActError::internal(format!("bad base64 screenshot: {e}")))
         })
     }
+
+    // ── DOM interaction ───────────────────────────────────────────────────────
+
+    /// Resolve a CSS selector to a BiDi node sharedId.
+    ///
+    /// Requires `browser:script` — `input.performActions` needs an element
+    /// origin, and resolving one goes through `script.evaluate` (spec §6).
+    fn resolve_node(c: &mut BidiConn, selector: &str) -> ActResult<String> {
+        let context = c.context().to_string();
+        let expr = format!(
+            "document.querySelector({})",
+            serde_json::to_string(selector).unwrap_or_else(|_| "null".into())
+        );
+        let res = c
+            .send(
+                "script.evaluate",
+                serde_json::json!({
+                    "expression": expr,
+                    "target": { "context": context },
+                    "awaitPromise": false,
+                    "resultOwnership": "root",
+                }),
+            )
+            .map_err(ActError::internal)?;
+        res.get("result")
+            .and_then(|r| r.get("sharedId"))
+            .and_then(|v| v.as_str())
+            .map(str::to_string)
+            .ok_or_else(|| {
+                ActError::invalid_args(format!("no element matched selector {selector:?}"))
+            })
+    }
+
+    /// Pointer action sequence that clicks a resolved element.
+    fn click_actions(shared_id: &str) -> serde_json::Value {
+        serde_json::json!([{
+            "type": "pointer",
+            "id": "mouse",
+            "actions": [
+                { "type": "pointerMove", "x": 0, "y": 0,
+                  "origin": { "type": "element",
+                              "element": { "sharedId": shared_id } } },
+                { "type": "pointerDown", "button": 0 },
+                { "type": "pointerUp", "button": 0 }
+            ]
+        }])
+    }
+
+    #[act_tool(
+        description = "Evaluate a JavaScript expression in the current page and return its value."
+    )]
+    fn evaluate(
+        /// JavaScript expression to evaluate.
+        expression: String,
+        /// Await the result if it is a promise. Default true.
+        await_promise: Option<bool>,
+        ctx: &mut ActContext<ToolMeta>,
+    ) -> ActResult<Cv> {
+        let id = require_session(ctx)?;
+        with_session_mut(&id, |c| {
+            gate(c, BrowserCap::Script)?;
+            let context = c.context().to_string();
+            let res = c
+                .send(
+                    "script.evaluate",
+                    serde_json::json!({
+                        "expression": expression,
+                        "target": { "context": context },
+                        "awaitPromise": await_promise.unwrap_or(true),
+                    }),
+                )
+                .map_err(ActError::internal)?;
+            json_to_cbor(&res)
+        })
+    }
+
+    #[act_tool(
+        description = "Extract visible text from the page, or from one element by CSS selector.",
+        read_only
+    )]
+    fn get_text(
+        /// CSS selector. Defaults to the whole document body.
+        selector: Option<String>,
+        ctx: &mut ActContext<ToolMeta>,
+    ) -> ActResult<String> {
+        let id = require_session(ctx)?;
+        with_session_mut(&id, |c| {
+            gate(c, BrowserCap::Read)?;
+            gate(c, BrowserCap::Script)?;
+            let context = c.context().to_string();
+            let expr = match selector {
+                Some(ref s) => format!(
+                    "(document.querySelector({})||{{}}).innerText ?? ''",
+                    serde_json::to_string(s).unwrap_or_else(|_| "null".into())
+                ),
+                None => "document.body.innerText".to_string(),
+            };
+            let res = c
+                .send(
+                    "script.evaluate",
+                    serde_json::json!({
+                        "expression": expr,
+                        "target": { "context": context },
+                        "awaitPromise": false,
+                    }),
+                )
+                .map_err(ActError::internal)?;
+            Ok(res
+                .get("result")
+                .and_then(|r| r.get("value"))
+                .and_then(|v| v.as_str())
+                .unwrap_or_default()
+                .to_string())
+        })
+    }
+
+    #[act_tool(
+        description = "Click the element matching a CSS selector. \
+                       Requires browser:input and browser:script."
+    )]
+    fn click(
+        /// CSS selector of the element to click.
+        selector: String,
+        ctx: &mut ActContext<ToolMeta>,
+    ) -> ActResult<Cv> {
+        let id = require_session(ctx)?;
+        with_session_mut(&id, |c| {
+            gate(c, BrowserCap::Input)?;
+            gate(c, BrowserCap::Script)?;
+            let shared_id = resolve_node(c, &selector)?;
+            let context = c.context().to_string();
+            let res = c
+                .send(
+                    "input.performActions",
+                    serde_json::json!({
+                        "context": context,
+                        "actions": click_actions(&shared_id),
+                    }),
+                )
+                .map_err(ActError::internal)?;
+            json_to_cbor(&res)
+        })
+    }
+
+    #[act_tool(
+        description = "Focus the element matching a CSS selector and type text into it. \
+                       Requires browser:input and browser:script."
+    )]
+    fn type_text(
+        /// CSS selector of the element to type into.
+        selector: String,
+        /// Text to type.
+        text: String,
+        ctx: &mut ActContext<ToolMeta>,
+    ) -> ActResult<Cv> {
+        let id = require_session(ctx)?;
+        with_session_mut(&id, |c| {
+            gate(c, BrowserCap::Input)?;
+            gate(c, BrowserCap::Script)?;
+            let shared_id = resolve_node(c, &selector)?;
+            let context = c.context().to_string();
+
+            // Focus by clicking, then dispatch key actions.
+            c.send(
+                "input.performActions",
+                serde_json::json!({
+                    "context": context,
+                    "actions": click_actions(&shared_id),
+                }),
+            )
+            .map_err(ActError::internal)?;
+
+            let keys: Vec<serde_json::Value> = text
+                .chars()
+                .flat_map(|ch| {
+                    let s = ch.to_string();
+                    [
+                        serde_json::json!({ "type": "keyDown", "value": s }),
+                        serde_json::json!({ "type": "keyUp", "value": s }),
+                    ]
+                })
+                .collect();
+
+            let res = c
+                .send(
+                    "input.performActions",
+                    serde_json::json!({
+                        "context": context,
+                        "actions": [{ "type": "key", "id": "keyboard", "actions": keys }]
+                    }),
+                )
+                .map_err(ActError::internal)?;
+            json_to_cbor(&res)
+        })
+    }
+
+    // ── Console ───────────────────────────────────────────────────────────────
+
+    #[act_tool(
+        description = "Drain buffered console and log entries captured since the last call. \
+                       Reports how many entries were dropped to stay within the buffer bound.",
+        read_only
+    )]
+    fn console_drain(
+        /// Maximum entries to return. Defaults to all buffered.
+        max: Option<u32>,
+        ctx: &mut ActContext<ToolMeta>,
+    ) -> ActResult<Cv> {
+        let id = require_session(ctx)?;
+        with_session_mut(&id, |c| {
+            gate(c, BrowserCap::Read)?;
+            let d = c.drain_log(max.map(|n| n as usize));
+            let as_json = serde_json::to_value(&d)
+                .map_err(|e| ActError::internal(format!("serialize log: {e}")))?;
+            json_to_cbor(&as_json)
+        })
+    }
 }
