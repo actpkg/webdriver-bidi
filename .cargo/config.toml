@@ -1,0 +1,4 @@
+[build]
+target = "wasm32-wasip2"
+# tokio's wasip2 networking is unstable-gated; without this the crate will not compile.
+rustflags = ["--cfg", "tokio_unstable"]

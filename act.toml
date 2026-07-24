@@ -1,0 +1,33 @@
+[std]
+name = "webdriver-bidi"
+
+[std.capabilities."wasi:sockets"]
+description = "WebSocket connection to a local WebDriver BiDi endpoint."
+
+# Loopback only. Ports cover Chrome DevTools (9222/9223) and
+# geckodriver/Selenium (4444/4445). Extend via `--grant` for non-standard
+# deployments rather than widening the declared ceiling.
+[[std.capabilities."wasi:sockets".allow]]
+host = "127.0.0.1"
+ports = [9222, 9223, 4444, 4445]
+protocols = ["tcp"]
+
+[[std.capabilities."wasi:sockets".allow]]
+host = "::1"
+ports = [9222, 9223, 4444, 4445]
+protocols = ["tcp"]
+
+# Semantic operation classes. Self-enforced in-component today (checked against
+# the session's `allow` set); host-enforced once the act:consent WIT lands.
+# Declaring them makes `--deny browser:script` meaningful.
+[std.capabilities."browser:navigate"]
+description = "Drive the browser to a URL."
+
+[std.capabilities."browser:script"]
+description = "Evaluate arbitrary JavaScript in the page."
+
+[std.capabilities."browser:input"]
+description = "Dispatch synthetic input events (click, type)."
+
+[std.capabilities."browser:read"]
+description = "Read page state (screenshot, text extraction, console log)."
