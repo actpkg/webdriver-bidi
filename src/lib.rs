@@ -1,5 +1,7 @@
 use act_sdk::prelude::*;
 
+pub mod addr;
+
 #[act_component]
 mod component {
     use super::*;
