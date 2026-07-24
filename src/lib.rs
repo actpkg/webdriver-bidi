@@ -6,6 +6,8 @@ pub mod demux;
 pub mod logbuf;
 pub mod proto;
 
+mod conn;
+
 #[act_component]
 mod component {
     use super::*;
