@@ -7,14 +7,21 @@ DOM interaction, screenshots, and console capture.
 It attaches to a browser that is **already running**. It cannot launch one —
 wasm components cannot spawn processes. Browser lifecycle is the caller's job.
 
+**Use Firefox**: it implements WebDriver BiDi natively. Chromium's
+`--remote-debugging-port` speaks CDP, not BiDi, and needs the `chromium-bidi`
+wrapper in front of it.
+
 ```bash
-chromium --headless --remote-debugging-port=9222 &
+firefox --headless --remote-debugging-port=9222 &
 
 act call webdriver-bidi.wasm navigate \
   --args '{"url":"https://example.com"}' \
   --allow wasi:sockets \
-  --session-args '{"host":"127.0.0.1","port":9222}'
+  --session-args '{"host":"127.0.0.1","port":9222,"timeout_ms":45000}'
 ```
+
+Verified against Firefox: navigation, text extraction, `document.title`
+evaluation, element clicks, and a 1366×682 PNG screenshot.
 
 ## Tools
 
@@ -72,7 +79,8 @@ speaks enough BiDi for the suite. It deliberately emits an unsolicited event
 before every command response, so an implementation that naively reads one
 frame per command fails rather than passing by luck.
 
-A real-browser check is opt-in and not part of CI:
+A real-browser check is opt-in and not part of CI. It drives a headless Firefox
+through navigate → get_text → evaluate:
 
 ```bash
 just test-browser

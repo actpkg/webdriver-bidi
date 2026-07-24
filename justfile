@@ -70,13 +70,27 @@ publish: pack
       echo "digest=$DIGEST" >> "$GITHUB_OUTPUT"
     fi
 
-# Opt-in: requires a local Chromium. Not run in CI.
+# Opt-in: requires a local Firefox. Not run in CI.
+#
+# Firefox is the target because it implements WebDriver BiDi natively. Chromium
+# exposes CDP on --remote-debugging-port and needs the chromium-bidi wrapper to
+# speak BiDi, so it will not work here unaided.
 test-browser: pack
     #!/usr/bin/env bash
     set -euo pipefail
-    chromium --headless --remote-debugging-port=9222 --no-sandbox &
+    PROFILE=$(mktemp -d)
+    firefox --headless --no-remote --profile "$PROFILE" --remote-debugging-port=9222 &
     BROWSER=$!
-    trap "kill $BROWSER 2>/dev/null || true" EXIT
-    sleep 2
+    trap "kill $BROWSER 2>/dev/null || true; rm -rf $PROFILE" EXIT
+    # Firefox needs several seconds before the BiDi endpoint accepts connections.
+    for i in $(seq 30); do
+      ss -ltn 2>/dev/null | grep -q 127.0.0.1:9222 && break
+      sleep 1
+    done
+    SA='{"host":"127.0.0.1","port":9222,"timeout_ms":45000}'
     {{act}} call {{wasm}} navigate --args '{"url":"https://example.com"}' \
-      --allow wasi:sockets --session-args '{"host":"127.0.0.1","port":9222}'
+      --allow wasi:sockets --session-args "$SA"
+    {{act}} call {{wasm}} get_text --args '{}' \
+      --allow wasi:sockets --session-args "$SA"
+    {{act}} call {{wasm}} evaluate --args '{"expression":"document.title"}' \
+      --allow wasi:sockets --session-args "$SA"

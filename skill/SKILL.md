@@ -10,9 +10,16 @@ metadata:
 Drives a browser that is **already running** with a BiDi endpoint exposed. This
 component cannot launch a browser: wasm components cannot spawn processes.
 
-Start one first, for example:
+Start one first. **Firefox implements WebDriver BiDi natively**, so it works
+unaided:
 
-    chromium --headless --remote-debugging-port=9222
+    firefox --headless --remote-debugging-port=9222
+
+Chromium exposes CDP on that flag, not BiDi, and needs the `chromium-bidi`
+wrapper in front of it. Prefer Firefox unless you have that wrapper running.
+
+Firefox takes a few seconds to open the endpoint; allow a generous
+`timeout_ms` (45000 is comfortable) on the first session.
 
 ## Opening a session
 
