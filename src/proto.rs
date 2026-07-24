@@ -91,8 +91,8 @@ mod tests {
 
     #[test]
     fn classifies_error_response() {
-        let f = classify(r#"{"type":"error","id":9,"error":"no such node","message":"boom"}"#)
-            .unwrap();
+        let f =
+            classify(r#"{"type":"error","id":9,"error":"no such node","message":"boom"}"#).unwrap();
         match f {
             Frame::Error { id, message } => {
                 assert_eq!(id, 9);
@@ -119,7 +119,10 @@ mod tests {
 
     #[test]
     fn rejects_malformed_json() {
-        assert!(matches!(classify("not json"), Err(ProtoError::Malformed(_))));
+        assert!(matches!(
+            classify("not json"),
+            Err(ProtoError::Malformed(_))
+        ));
     }
 
     #[test]

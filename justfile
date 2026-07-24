@@ -37,7 +37,10 @@ test: unit pack
     PORT=$BIDI_PORT node tests/mock-bidi/server.mjs &
     MOCK=$!
     SA_FULL="{\"host\":\"127.0.0.1\",\"port\":$BIDI_PORT}"
-    SA_RO="{\"host\":\"127.0.0.1\",\"port\":$BIDI_PORT,\"allow\":[\"navigate\",\"read\"]}"
+    # Grants input but NOT script, so `click` is denied specifically on
+    # browser:script — proving the transitive coupling rather than merely
+    # failing on the first missing capability.
+    SA_RO="{\"host\":\"127.0.0.1\",\"port\":$BIDI_PORT,\"allow\":[\"navigate\",\"read\",\"input\"]}"
     {{act}} run {{wasm}} --http --listen "{{addr}}" --allow wasi:sockets --session-args "$SA_FULL" &
     PID=$!
     {{act}} run {{wasm}} --http --listen "{{addr2}}" --allow wasi:sockets --session-args "$SA_RO" &
@@ -51,6 +54,21 @@ test: unit pack
     # another file's "buffer is now empty" assertion.
     {{hurl}} --test --jobs 1 --variable "baseurl={{baseurl}}" e2e/info.hurl e2e/list_tools.hurl e2e/dom.hurl e2e/navigate_console.hurl
     {{hurl}} --test --jobs 1 --variable "baseurl2={{baseurl2}}" e2e/caps_denied.hurl
+
+publish: pack
+    #!/usr/bin/env bash
+    set -euo pipefail
+    INFO=$({{act}} inspect component-manifest {{wasm}})
+    VERSION=$(echo "$INFO" | jq -r .std.version)
+    OUTPUT=$({{actbuild}} push {{wasm}} "{{component_ref}}:$VERSION" \
+      --skip-if-exists \
+      --also-tag latest 2>&1) || { echo "$OUTPUT" >&2; exit 1; }
+    echo "$OUTPUT"
+    DIGEST=$(echo "$OUTPUT" | grep "^Digest:" | awk '{print $2}' || true)
+    if [ -n "${GITHUB_OUTPUT:-}" ]; then
+      echo "image={{component_ref}}" >> "$GITHUB_OUTPUT"
+      echo "digest=$DIGEST" >> "$GITHUB_OUTPUT"
+    fi
 
 # Opt-in: requires a local Chromium. Not run in CI.
 test-browser: pack

@@ -1,0 +1,117 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: moonrepo/setup-rust@v1
+        with:
+          bins: just
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - run: npm i -g @actcore/act @actcore/act-build
+      # `just init` fetches wit/deps; without it the build has no WIT to bind against.
+      - run: just init
+      - run: just build
+      - uses: actions/upload-artifact@v7
+        with:
+          name: component.wasm
+          path: target/wasm32-wasip2/release/*.wasm
+
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: moonrepo/setup-rust@v1
+        with:
+          bins: just
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - run: npm i -g @actcore/act @actcore/act-build
+      - run: cargo fmt -- --check
+      - run: just init
+      - run: cargo clippy -- -D warnings
+
+  unit:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: moonrepo/setup-rust@v1
+        with:
+          bins: just
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - run: npm i -g @actcore/act @actcore/act-build
+      - run: just init
+      # Unit tests run on the host target, not wasm.
+      - run: just unit
+
+  e2e:
+    name: E2E Test
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: moonrepo/setup-rust@v1
+        with:
+          bins: just, hurl
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - run: npm i -g @actcore/act @actcore/act-build
+      # Rebuild rather than download: `just test` packs, and packing an
+      # artifact without wit/deps present yields no declared ceiling, so every
+      # grant is denied and the e2e fails confusingly.
+      - run: just init
+      - run: just test
+
+  publish:
+    name: Publish
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    needs: [e2e, lint, unit]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read      # checkout
+      id-token: write     # keyless cosign signing via GitHub OIDC
+    steps:
+      - uses: actions/checkout@v7
+      - uses: moonrepo/setup-rust@v1
+        with:
+          bins: just
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - run: npm i -g @actcore/act @actcore/act-build
+      - uses: sigstore/cosign-installer@v4.1.2
+      - run: just init
+      - name: Publish
+        id: publish
+        env:
+          OCI_USERNAME: __token__
+          OCI_PASSWORD: ${{ secrets.ACTPKG_TOKEN }}
+          ACT_SOURCE: ${{ github.server_url }}/${{ github.repository }}
+        run: just publish
+      - name: Sign (keyless via GitHub OIDC)
+        if: steps.publish.outputs.digest != ''
+        env:
+          ACTPKG_TOKEN: ${{ secrets.ACTPKG_TOKEN }}
+          SUBJECT: ${{ steps.publish.outputs.image }}@${{ steps.publish.outputs.digest }}
+        run: |
+          echo "$ACTPKG_TOKEN" | cosign login actpkg.dev -u __token__ --password-stdin
+          cosign sign --yes "$SUBJECT"

@@ -119,8 +119,7 @@ mod component {
         let mut buf = Vec::new();
         ciborium::into_writer(v, &mut buf)
             .map_err(|e| ActError::internal(format!("cbor encode: {e}")))?;
-        ciborium::from_reader(&buf[..])
-            .map_err(|e| ActError::internal(format!("cbor decode: {e}")))
+        ciborium::from_reader(&buf[..]).map_err(|e| ActError::internal(format!("cbor decode: {e}")))
     }
 
     // ── Navigation / browsing contexts ────────────────────────────────────────
@@ -163,9 +162,7 @@ mod component {
         })
     }
 
-    #[act_tool(
-        description = "Create a new browsing context and make it current for this session."
-    )]
+    #[act_tool(description = "Create a new browsing context and make it current for this session.")]
     fn context_create(
         /// Context type: tab | window. Default tab.
         r#type: Option<String>,
@@ -348,10 +345,8 @@ mod component {
         })
     }
 
-    #[act_tool(
-        description = "Click the element matching a CSS selector. \
-                       Requires browser:input and browser:script."
-    )]
+    #[act_tool(description = "Click the element matching a CSS selector. \
+                       Requires browser:input and browser:script.")]
     fn click(
         /// CSS selector of the element to click.
         selector: String,

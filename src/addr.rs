@@ -22,7 +22,10 @@ impl std::fmt::Display for AddrError {
                  loopback literals such as 127.0.0.1 or ::1"
             ),
             AddrError::NotLoopback(ip) => {
-                write!(f, "host {ip} is not a loopback address; scope is loopback-only")
+                write!(
+                    f,
+                    "host {ip} is not a loopback address; scope is loopback-only"
+                )
             }
             AddrError::InvalidPort => write!(f, "port must be non-zero"),
         }
@@ -79,6 +82,9 @@ mod tests {
 
     #[test]
     fn rejects_zero_port() {
-        assert!(matches!(resolve("127.0.0.1", 0), Err(AddrError::InvalidPort)));
+        assert!(matches!(
+            resolve("127.0.0.1", 0),
+            Err(AddrError::InvalidPort)
+        ));
     }
 }

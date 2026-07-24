@@ -4,7 +4,7 @@
 //! No TLS. Scope is loopback-only (spec §3) — do not add rustls here.
 
 use crate::caps::CapSet;
-use crate::demux::{step, Step};
+use crate::demux::{Step, step};
 use crate::logbuf::{Drained, LogBuffer};
 use crate::proto::{classify, command};
 use futures_util::{SinkExt, StreamExt};
@@ -13,7 +13,7 @@ use tokio::net::TcpStream;
 use tokio::runtime::{Builder, Runtime};
 use tokio::time::timeout;
 use tokio_tungstenite::tungstenite::Message;
-use tokio_tungstenite::{client_async, WebSocketStream};
+use tokio_tungstenite::{WebSocketStream, client_async};
 
 pub struct ConnConfig {
     pub host: String,
