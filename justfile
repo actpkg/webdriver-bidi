@@ -47,6 +47,15 @@ test: unit build
     BIDI_PORT=9222
     PORT=$BIDI_PORT node tests/mock-bidi/server.mjs &
     MOCK=$!
+    # Wait for the mock to accept connections before starting the hosts. Both
+    # are launched with --session-args, so `act run` opens a session — and
+    # therefore dials this port — during startup: if the mock is not listening
+    # yet, startup fails and the HTTP server never binds. Locally node usually
+    # wins the race; on a CI runner it does not.
+    for _ in $(seq 1 60); do
+        (echo > /dev/tcp/127.0.0.1/$BIDI_PORT) >/dev/null 2>&1 && break
+        sleep 0.5
+    done
     SA_FULL="{\"host\":\"127.0.0.1\",\"port\":$BIDI_PORT}"
     # Grants input but NOT script, so `click` is denied specifically on
     # browser:script — proving the transitive coupling rather than merely
