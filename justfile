@@ -14,9 +14,14 @@ port2 := `shuf -i 20000-29999 -n 1`
 addr2 := "[::1]:" + port2
 baseurl2 := "http://" + addr2
 
-# Fetch WIT deps into wit/deps/.
+# No-op: the WIT dependencies are committed under wit/deps/ rather than
+# fetched. This component was scaffolded outside the copier template, targets
+# act:tools@0.2.0 / act:sessions@0.2.0, and carries no wkg registry mapping —
+# so there is nothing for a fetch step to resolve. The three package.wit files
+# total 20 KB; act-sdk-rs commits its deps the same way. The recipe stays so
+# that CI and the documented `just init && just build` flow keep working.
 init:
-    act-build init
+    @true
 
 # Build and pack. Packing is part of building on purpose: `cargo build` alone
 # produces a wasm with no `act:component` section, which declares no capability
