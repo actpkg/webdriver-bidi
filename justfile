@@ -18,11 +18,17 @@ baseurl2 := "http://" + addr2
 init:
     act-build init
 
+# Build and pack. Packing is part of building on purpose: `cargo build` alone
+# produces a wasm with no `act:component` section, which declares no capability
+# ceiling, so at runtime every grant is refused as "outside ceiling" and the
+# failure points anywhere but at the missing metadata.
 build:
     cargo build --release
+    {{actbuild}} pack {{wasm}}
 
-# Embed act:component metadata and act:skill into the wasm.
-pack: build
+# Re-embed act:component metadata and act:skill without rebuilding. `pack` is
+# idempotent, so running it after `build` is harmless.
+pack:
     {{actbuild}} pack {{wasm}}
 
 # Unit tests run on the host target, not wasm.
@@ -55,7 +61,7 @@ test: unit pack
     {{hurl}} --test --jobs 1 --variable "baseurl={{baseurl}}" e2e/info.hurl e2e/list_tools.hurl e2e/dom.hurl e2e/navigate_console.hurl
     {{hurl}} --test --jobs 1 --variable "baseurl2={{baseurl2}}" e2e/caps_denied.hurl
 
-publish: pack
+publish: build
     #!/usr/bin/env bash
     set -euo pipefail
     INFO=$({{act}} inspect component-manifest {{wasm}})
@@ -75,7 +81,7 @@ publish: pack
 # Firefox is the target because it implements WebDriver BiDi natively. Chromium
 # exposes CDP on --remote-debugging-port and needs the chromium-bidi wrapper to
 # speak BiDi, so it will not work here unaided.
-test-browser: pack
+test-browser: build
     #!/usr/bin/env bash
     set -euo pipefail
     PROFILE=$(mktemp -d)
