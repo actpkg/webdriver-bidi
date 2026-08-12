@@ -40,7 +40,7 @@ pack:
 unit:
     cargo test --target x86_64-unknown-linux-gnu
 
-test: unit pack
+test: unit build
     #!/usr/bin/env bash
     set -euo pipefail
     (cd tests/mock-bidi && npm install --silent)
