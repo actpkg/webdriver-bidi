@@ -4,15 +4,6 @@ component_ref := env("OCI_REF", "ghcr.io/actpkg/webdriver-bidi")
 
 act := env("ACT", "act")
 actbuild := env("ACT_BUILD", "act-build")
-hurl := env("HURL", "hurl")
-# Random ports for the e2e servers, above common dev ports and below the Linux
-# outbound ephemeral range (32768+).
-port := `shuf -i 10000-19999 -n 1`
-addr := "[::1]:" + port
-baseurl := "http://" + addr
-port2 := `shuf -i 20000-29999 -n 1`
-addr2 := "[::1]:" + port2
-baseurl2 := "http://" + addr2
 
 # No-op: the WIT dependencies are committed under wit/deps/ rather than
 # fetched. This component was scaffolded outside the copier template, targets
@@ -44,36 +35,7 @@ test: unit build
     #!/usr/bin/env bash
     set -euo pipefail
     (cd tests/mock-bidi && npm install --silent)
-    BIDI_PORT=9222
-    PORT=$BIDI_PORT node tests/mock-bidi/server.mjs &
-    MOCK=$!
-    # Wait for the mock to accept connections before starting the hosts. Both
-    # are launched with --session-args, so `act run` opens a session — and
-    # therefore dials this port — during startup: if the mock is not listening
-    # yet, startup fails and the HTTP server never binds. Locally node usually
-    # wins the race; on a CI runner it does not.
-    for _ in $(seq 1 60); do
-        (echo > /dev/tcp/127.0.0.1/$BIDI_PORT) >/dev/null 2>&1 && break
-        sleep 0.5
-    done
-    SA_FULL="{\"host\":\"127.0.0.1\",\"port\":$BIDI_PORT}"
-    # Grants input but NOT script, so `click` is denied specifically on
-    # browser:script — proving the transitive coupling rather than merely
-    # failing on the first missing capability.
-    SA_RO="{\"host\":\"127.0.0.1\",\"port\":$BIDI_PORT,\"allow\":[\"navigate\",\"read\",\"input\"]}"
-    {{act}} run {{wasm}} --http --listen "{{addr}}" --allow wasi:sockets --session-args "$SA_FULL" &
-    PID=$!
-    {{act}} run {{wasm}} --http --listen "{{addr2}}" --allow wasi:sockets --session-args "$SA_RO" &
-    PID2=$!
-    trap "kill $PID $PID2 $MOCK 2>/dev/null || true" EXIT
-    curl --retry 60 --retry-connrefused --retry-delay 1 -fsS -o /dev/null {{baseurl}}/info
-    curl --retry 60 --retry-connrefused --retry-delay 1 -fsS -o /dev/null {{baseurl2}}/info
-    # --jobs 1 is required, not incidental: every file shares one session-of-1
-    # server, and the console buffer is session state. Under hurl's default
-    # parallel execution, one file's commands generate log events that race with
-    # another file's "buffer is now empty" assertion.
-    {{hurl}} --test --jobs 1 --variable "baseurl={{baseurl}}" e2e/info.hurl e2e/list_tools.hurl e2e/dom.hurl e2e/navigate_console.hurl
-    {{hurl}} --test --jobs 1 --variable "baseurl2={{baseurl2}}" e2e/caps_denied.hurl
+    ACT="{{act}}" uv run --project e2e pytest e2e/ -v
 
 publish: build
     #!/usr/bin/env bash

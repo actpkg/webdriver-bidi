@@ -72,9 +72,10 @@ jobs:
           node-version: '22'
       - uses: moonrepo/setup-rust@v1
         with:
-          bins: just, hurl
+          bins: just
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - uses: astral-sh/setup-uv@v6
       - run: npm i -g @actcore/act @actcore/act-build
       # Rebuild rather than download: `just test` packs, and packing an
       # artifact without wit/deps present yields no declared ceiling, so every
