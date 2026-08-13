@@ -1,6 +1,6 @@
 wasm := "target/wasm32-wasip2/release/component_webdriver_bidi.wasm"
 # OCI reference to publish to (registry/namespace/name, no tag). Override with OCI_REF.
-component_ref := env("OCI_REF", "ghcr.io/actpkg/webdriver-bidi")
+component_ref := env("OCI_REF", "actpkg.dev/library/webdriver-bidi")
 
 act := env("ACT", "act")
 actbuild := env("ACT_BUILD", "act-build")
