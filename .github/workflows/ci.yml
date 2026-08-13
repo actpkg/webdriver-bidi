@@ -209,6 +209,34 @@ jobs:
           echo "--- act stderr (coproc probe) ---"
           cat -A /tmp/act-coproc-stderr.log
           set -e
+      # Direct test of the specific confound raised for every probe above
+      # except the coproc one: `printf | act` closes stdin the instant
+      # printf exits, so a response arriving "promptly" is also consistent
+      # with a server that only flushes on EOF, not with genuine health.
+      # `{ printf …; sleep 8; }` keeps the write end of the pipe open for 8
+      # seconds after the request — matching what stdio_client actually
+      # does — and a timestamped read loop (not `head -c N`, whose own
+      # buffering could blur the timing this is meant to settle) records
+      # exactly when each line arrives relative to two markers printed
+      # before and after the sleep. If the response timestamp lands near
+      # the first marker, act answers live, independent of EOF; if it only
+      # appears after the second, the response was gated on stdin closing
+      # all along, and every "healthy" probe before the coproc one was an
+      # artifact of closing stdin too fast to notice.
+      - name: "Diagnostic: response timing against a stdin held open 8s"
+        run: |
+          set +e
+          CMD=${ACT:-act}
+          {
+            printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2026-07-28","capabilities":{},"clientInfo":{"name":"probe","version":"0"},"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":{}}}}'
+            echo "$(date +%s.%N) STDIN: request sent, holding pipe open for 8s" >&2
+            sleep 8
+            echo "$(date +%s.%N) STDIN: sleep done, pipe about to close (EOF)" >&2
+          } | timeout 15 $CMD run target/wasm32-wasip2/release/component_webdriver_bidi.wasm --mcp --allow wasi:sockets 2>/tmp/act-timing-stderr.log \
+            | { while IFS= read -r -t 15 line; do echo "$(date +%s.%N) GOT LINE: $line"; done; echo "$(date +%s.%N) read loop ended (EOF or its own timeout)"; }
+          echo "--- act stderr (timing probe) ---"
+          cat -A /tmp/act-timing-stderr.log
+          set -e
       - run: just test
       # Always, not just on failure: a cancellation (the fate of the very
       # first hang this investigation hit) skips normal failure reporting
