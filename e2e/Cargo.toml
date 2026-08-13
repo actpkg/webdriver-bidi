@@ -1,0 +1,20 @@
+[package]
+name = "e2e-webdriver-bidi"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+# Detach from any outer workspace this component may sit in.
+[workspace]
+
+[dev-dependencies]
+rmcp = { version = "3.5", features = ["client", "transport-child-process"] }
+# `net` is for the mock-bidi port probe (TcpStream::connect); the process
+# feature drives `act` (the node mock is spawned with std's own Command).
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "process", "io-util", "sync", "time", "net"] }
+serde_json = "1"
+# atexit teardown of the session-scoped mock-bidi server: a Rust test binary
+# has no pytest-style session fixture finaliser, and a leaked node process
+# would hold port 9222 into the next run (the respawn then dies of
+# EADDRINUSE while every test silently passes against the stale server).
+libc = "0.2"

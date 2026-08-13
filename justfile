@@ -31,11 +31,12 @@ pack:
 unit:
     cargo test --target x86_64-unknown-linux-gnu
 
-test: unit build
+test: build
     #!/usr/bin/env bash
     set -euo pipefail
+    # The mock-bidi node stub is a build prerequisite (node_modules for `ws`).
     (cd tests/mock-bidi && npm install --silent)
-    ACT="{{act}}" uv run --project e2e pytest e2e/ -v
+    cd e2e && ACT="{{act}}" WASM="../{{wasm}}" cargo test
 
 publish: build
     #!/usr/bin/env bash
