@@ -45,8 +45,17 @@ BIDI_HOST = "127.0.0.1"
 BIDI_PORT = 9222
 
 # ACT's audit trail writes to stderr unconditionally — it is not governed by
-# RUST_LOG — so it is redirected to a file rather than left to flood pytest.
-LOG_FILE = Path(".pytest-act-stderr.log")
+# RUST_LOG. Every other migrated suite in this workspace redirects it to
+# `.pytest-act-stderr.log` via StdioTransport's `log_file`, on an ephemeral
+# CI runner nothing uploads. That means a host that fails to start, or hangs
+# before printing anything else, leaves zero trace in the one place
+# (the CI job log) with no other visibility — worse than the hang itself.
+# Diagnostic-only for now, deliberately scoped to this component: the
+# `client` fixture below does NOT set `log_file`, so `act`'s stderr falls
+# through to this process's own stderr, which pytest's default fd-level
+# capture picks up and — combined with the `timeout`/`timeout_method` in
+# pyproject.toml — prints alongside a stall's thread-dump traceback on
+# failure instead of vanishing with a cancelled job.
 
 
 def _wait_for_port(host: str, port: int, timeout: float = 30.0) -> None:
@@ -152,7 +161,8 @@ async def client(act_command: list[str], wasm_path: Path):
         command=act_command[0],
         args=[*act_command[1:], "run", str(wasm_path), "--mcp", "--allow", "wasi:sockets"],
         keep_alive=False,
-        log_file=LOG_FILE,
+        # No log_file: see the module-level comment near the top of this
+        # file — this is the diagnostic change for the CI-only hang.
     )
     async with Client(transport) as connected:
         yield connected

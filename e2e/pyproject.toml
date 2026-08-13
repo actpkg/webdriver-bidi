@@ -12,6 +12,7 @@ dependencies = [
     "fastmcp",
     "pytest",
     "pytest-asyncio",
+    "pytest-timeout",
 ]
 
 [tool.uv]
@@ -19,3 +20,9 @@ package = false
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
+# Diagnostic bound while chasing a CI-only hang (see conftest.py's `client`
+# fixture docstring): a stall now fails with a thread-dump traceback showing
+# exactly which await never returned, instead of running until the CI job is
+# cancelled with no evidence at all.
+timeout = 60
+timeout_method = "thread"
