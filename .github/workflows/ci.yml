@@ -153,6 +153,7 @@ jobs:
         run: |
           echo "ACT=[${ACT:-<unset>}]"
           command -v act || echo "no bare 'act' on PATH"
+          ${ACT:-act} --version || true
       # An npm global bin entry is sometimes a node shim that re-spawns the
       # real binary rather than the binary itself — which would put a second
       # node process (invisible until now) in the middle of every act
@@ -321,6 +322,36 @@ jobs:
             echo "::warning::CELL D FAILED for a reason other than a hang (exit $code) — check whether it was a fast, clean connection-refused"
           else
             echo "CELL D PASSED (unexpected: session-opening tests succeeded with nothing listening)"
+          fi
+      # The cell no prior probe could reach: every one so far went through
+      # Python, MCP, and the virtual open_session tool. `act call
+      # --session-args` drives the exact same guest connect path
+      # (BidiConn::open, a TCP connect then a WebSocket handshake via
+      # tokio-tungstenite, inside its own nested current-thread tokio
+      # runtime) through act-cli's session-of-1 path instead — no Python, no
+      # MCP, no fastmcp, no asyncio, no virtual-tool machinery. The mock is
+      # started directly (not via the pytest fixture) since this step never
+      # touches pytest at all.
+      - name: "Diagnostic: act call --session-args, zero Python involved"
+        run: |
+          set +e
+          node tests/mock-bidi/server.mjs &
+          MOCKPID=$!
+          for i in $(seq 1 30); do (echo > /dev/tcp/127.0.0.1/9222) >/dev/null 2>&1 && break; sleep 0.5; done
+          CMD=${ACT:-act}
+          timeout 30 $CMD call target/wasm32-wasip2/release/component_webdriver_bidi.wasm navigate \
+            --args '{"url":"https://example.com"}' \
+            --allow wasi:sockets --session-args '{"host":"127.0.0.1","port":9222}'
+          code=$?
+          kill "$MOCKPID" 2>/dev/null
+          wait "$MOCKPID" 2>/dev/null
+          set -e
+          if [ "$code" -eq 124 ]; then
+            echo "::warning::ACT CALL HUNG (timed out after 30s) — the guest's own connect path under wasmtime is implicated; MCP, fastmcp, asyncio and the virtual-tool machinery are all cleared"
+          elif [ "$code" -ne 0 ]; then
+            echo "::warning::ACT CALL FAILED for a reason other than a hang (exit $code)"
+          else
+            echo "ACT CALL SUCCEEDED — guest connect path is fine; the fault is specific to open_session arriving through the MCP virtual-tool path"
           fi
       - run: just test
       # Always, not just on failure: a cancellation (the fate of the very
