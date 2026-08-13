@@ -81,6 +81,29 @@ jobs:
       # artifact without wit/deps present yields no declared ceiling, so every
       # grant is denied and the e2e fails confusingly.
       - run: just init
+      - run: just build
+      # Diagnostic for a CI-only hang under active investigation: this calls
+      # only the guest's `list-tools` export (what the MCP host asks for
+      # during `initialize`, before serving begins) — no MCP, no stdio
+      # server, no session, no capability grant. It splits the hang cleanly:
+      # if this hangs too, the guest itself stalls in list-tools; if it
+      # succeeds, the stall is in the stdio serving path between this call
+      # and the `initialize` response. `set +e`/`set -e` bracket the probe so
+      # a hang or failure here doesn't block `just test` from also running
+      # and yielding its own evidence in the same run.
+      - name: "Diagnostic: probe list-tools directly"
+        run: |
+          set +e
+          timeout 60 act info target/wasm32-wasip2/release/component_webdriver_bidi.wasm --tools --format json
+          code=$?
+          set -e
+          if [ "$code" -eq 124 ]; then
+            echo "::warning::LIST-TOOLS HUNG (timed out after 60s)"
+          elif [ "$code" -ne 0 ]; then
+            echo "::warning::LIST-TOOLS FAILED (exit $code, not a timeout)"
+          else
+            echo "LIST-TOOLS SUCCEEDED"
+          fi
       - run: just test
 
   publish:
