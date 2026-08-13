@@ -169,7 +169,53 @@ jobs:
           if [ "$code" -ne 0 ]; then
             echo "::warning::RESTRICTED-ENV PROBE TIMED OUT or failed (pipeline exit $code) — no valid response captured above"
           fi
+      # Reframing: the audit banner proves `act` started, but the process was
+      # absent from the job's own orphan-cleanup list at the last
+      # cancellation — so the open question is not "does act hang" but
+      # "does act exit on its own, and what does its stderr say when it
+      # does." Every probe above closes stdin immediately (a one-shot
+      # `printf | ...` pipe); fastmcp keeps stdin open for the life of the
+      # session, which none of them have reproduced. This one does: a bash
+      # `coproc` keeps act's stdin genuinely open after sending the same
+      # initialize request, tries to read a response with a timeout, then
+      # checks with `kill -0` whether the process is still alive — proving
+      # liveness directly instead of inferring it from a client waiting in
+      # `selector.poll()`. If it already exited, `wait` recovers the real
+      # exit status and its stderr (captured to a file, never discarded)
+      # names the reason.
+      - name: "Diagnostic: does act exit on its own, with stdin held open"
+        run: |
+          set +e
+          rm -f /tmp/act-coproc-stderr.log
+          CMD=${ACT:-act}
+          coproc ACTPROC ( exec 2>/tmp/act-coproc-stderr.log; $CMD run target/wasm32-wasip2/release/component_webdriver_bidi.wasm --mcp --allow wasi:sockets )
+          ACTPID=$ACTPROC_PID
+          echo "started act pid=$ACTPID"
+          printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2026-07-28","capabilities":{},"clientInfo":{"name":"probe","version":"0"},"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":{}}}}' >&"${ACTPROC[1]}"
+          if read -t 20 -u "${ACTPROC[0]}" response; then
+            echo "GOT RESPONSE: $response"
+          else
+            echo "NO RESPONSE within 20s"
+          fi
+          if kill -0 "$ACTPID" 2>/dev/null; then
+            echo "act (pid $ACTPID) still running with stdin held open — genuine hang, not an early exit"
+            kill "$ACTPID" 2>/dev/null
+            wait "$ACTPID" 2>/dev/null
+          else
+            echo "act (pid $ACTPID) has EXITED on its own"
+            wait "$ACTPID"
+            echo "exit status: $?"
+          fi
+          echo "--- act stderr (coproc probe) ---"
+          cat -A /tmp/act-coproc-stderr.log
+          set -e
       - run: just test
+      # Always, not just on failure: a cancellation (the fate of the very
+      # first hang this investigation hit) skips normal failure reporting
+      # entirely, and that is exactly the run most worth seeing this for.
+      - name: "Diagnostic: dump act's stderr from the actual pytest run"
+        if: always()
+        run: cat -A .pytest-act-stderr.log || echo "no .pytest-act-stderr.log found"
 
   publish:
     name: Publish
