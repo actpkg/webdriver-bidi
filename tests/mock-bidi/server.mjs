@@ -7,12 +7,24 @@ import { WebSocketServer } from 'ws';
 const port = Number(process.env.PORT || 9222);
 const wss = new WebSocketServer({ port, path: '/session' });
 
+// Diagnostic for a CI-only hang investigation (see docs/specs/2026-08-08-
+// e2e-harness-findings.md): the raw TCP 'connection' event on the
+// underlying http.Server fires on accept, before any WebSocket upgrade is
+// attempted — distinct from wss's own 'connection' event below, which only
+// fires once the upgrade completes. Logging both tells apart "the guest
+// never got a TCP connection accepted" from "TCP connected but the upgrade
+// handshake never finished."
+wss._server.on('connection', (socket) => {
+  console.error(`[mock] TCP accept from ${socket.remoteAddress}:${socket.remotePort}`);
+});
+
 // 1x1 transparent PNG.
 const PNG_1X1 =
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk' +
   'YPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==';
 
 wss.on('connection', (ws) => {
+  console.error('[mock] WebSocket upgrade completed');
   ws.on('message', (raw) => {
     let msg;
     try {
