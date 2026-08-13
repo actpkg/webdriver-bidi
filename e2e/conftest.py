@@ -60,9 +60,13 @@ BIDI_PORT = 9222
 # right after `just test`, so it survives even a cancellation.
 LOG_FILE = Path(".pytest-act-stderr.log")
 
-# Healthy connects are measured in fractions of a second; this only has
-# to be loose enough never to trip on a slow runner.
-CONNECT_TIMEOUT = 30
+# Deliberately loose. `act run --mcp` instantiates the component before it
+# answers `initialize`, so "connect" includes that cost -- for a heavy
+# component (servo embeds a browser engine) it is seconds, and on a loaded
+# runner it varies. 30s tripped servo in CI while its healthy connect was
+# ~8s, so the bound sits well above the worst observed cost and still well
+# below the per-test timeout, keeping this the diagnostic that fires first.
+CONNECT_TIMEOUT = 120
 
 
 def _wait_for_port(host: str, port: int, timeout: float = 30.0) -> None:
