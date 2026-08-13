@@ -85,16 +85,21 @@ def mock_bidi():
     unlike `postgres`'s docker-compose Postgres this is a purpose-built test
     double with no lifecycle tooling of its own to defer to.
 
-    `SKIP_MOCK_BIDI=1` is a diagnostic escape hatch for the CI-only hang
-    under investigation: this is the only fixture in the fleet that spawns a
-    long-lived `subprocess.Popen` child (stdin not redirected, so it inherits
-    whatever file descriptors were open at fork time) that outlives every
-    test, started autouse/session-scoped before any MCP client exists — a
-    structural difference from every green component. Setting the var skips
-    the spawn entirely, so a test needing no session/browser (list_tools) can
-    run with that difference removed and nothing else changed, to see
-    whether the hang goes with it. Unset (the default), behavior is exactly
-    as before this diagnostic was added.
+    `SKIP_MOCK_BIDI=1` exists purely to bisect a CI-only hang under
+    investigation (never reproduced locally) — it is not a way to skip a
+    slow dependency, and nothing in the normal `just test` path sets it.
+    This is the only fixture in the fleet that spawns a long-lived
+    `subprocess.Popen` child that outlives every test, started
+    autouse/session-scoped before any MCP client exists — a structural
+    difference from every green component. Setting the var skips the spawn
+    entirely, holding everything else (test selection, grants, wasm) fixed,
+    to isolate whether the mock's mere presence — its process, or the
+    listening socket it opens — is upstream of the hang. (A first guess at
+    *why* — the child's `stdin` inheriting this process's own — was tested
+    directly with a real fix attempt and killed: redirecting it to
+    `subprocess.DEVNULL` did not clear the hang. See commit history for that
+    result; it is not repeated here since the fix was reverted.) Unset (the
+    default), behavior is exactly as before this diagnostic was added.
     """
     if os.environ.get("SKIP_MOCK_BIDI"):
         yield

@@ -250,31 +250,69 @@ jobs:
           echo "--- act stderr (timing probe) ---"
           cat -A /tmp/act-timing-stderr.log
           set -e
-      # The bisect: seven hypotheses about act, Python, and the environment
-      # have all died on evidence, which only leaves what actually differs
-      # between this component's suite and every green one. The one
-      # structural answer in conftest.py is `mock_bidi` — the only fixture
-      # in the fleet that spawns a long-lived subprocess.Popen child (stdin
-      # not redirected, so it inherits whatever fds were open at fork time)
-      # that outlives every test, started autouse/session-scoped before any
-      # MCP client exists. SKIP_MOCK_BIDI=1 removes exactly that and nothing
-      # else; test_list_tools.py needs no session and no browser, just a
-      # connected client, so it is the cleanest test of what's left standing
-      # without it. If this hangs too, the mock is cleared and the remaining
-      # difference is this component's own args/wasm; if it passes, the
-      # Popen child is implicated and everything upstream of it is exonerated.
-      - name: "Diagnostic: bisect — same suite, mock_bidi disabled"
+      # The 2x2 this hang actually needs. `just test` (below) is cell A:
+      # full suite, mock enabled — always hangs. Cell B, below, first showed
+      # a clean pass: test_list_tools.py alone, mock disabled. But that
+      # toggled TWO variables at once, not one — it also swapped a
+      # session-opening test set for a test that opens no session at all
+      # (test_list_tools.py needs only a connected client; every other test
+      # in this suite calls the virtual `open_session` tool, which makes the
+      # guest open a real WebSocket to the mock). A stdin=DEVNULL fix aimed
+      # at the mock's Popen child, tested with the mock enabled and the full
+      # suite (cell A with one variable changed), still hung — reverted, see
+      # that commit. So cell B's result is explained at least as well by
+      # "the one green run never opened a session" as by "the mock's
+      # process". Cells C and D fill in the missing corners, holding one
+      # variable fixed each time instead of two.
+      - name: "Diagnostic: cell B — list_tools alone, mock disabled"
         run: |
           set +e
           SKIP_MOCK_BIDI=1 ACT="${ACT:-act}" timeout 60 uv run --project e2e pytest e2e/test_list_tools.py -v
           code=$?
           set -e
           if [ "$code" -eq 124 ]; then
-            echo "::warning::BISECT HUNG (timed out after 60s) — mock_bidi is cleared, hang is elsewhere"
+            echo "::warning::CELL B HUNG (timed out after 60s)"
           elif [ "$code" -ne 0 ]; then
-            echo "::warning::BISECT FAILED for a reason other than a hang (exit $code)"
+            echo "::warning::CELL B FAILED for a reason other than a hang (exit $code)"
           else
-            echo "BISECT PASSED WITHOUT THE MOCK — mock_bidi's Popen child is implicated"
+            echo "CELL B PASSED (list_tools, no mock, no session)"
+          fi
+      # Cell C is the decisive one: same single test as cell B (no session
+      # opened), but with the mock ENABLED this time — holding the test set
+      # fixed and toggling only the mock. If this passes, the mock's
+      # existence and its socket are both cleared and the hang lives
+      # specifically in `open_session`'s guest-side WebSocket handshake — a
+      # much smaller target. If it hangs, the mock genuinely is upstream of
+      # the hang independent of sessions.
+      - name: "Diagnostic: cell C — list_tools alone, mock enabled"
+        run: |
+          set +e
+          ACT="${ACT:-act}" timeout 60 uv run --project e2e pytest e2e/test_list_tools.py -v
+          code=$?
+          set -e
+          if [ "$code" -eq 124 ]; then
+            echo "::warning::CELL C HUNG (timed out after 60s) — the mock's existence/socket is implicated"
+          elif [ "$code" -ne 0 ]; then
+            echo "::warning::CELL C FAILED for a reason other than a hang (exit $code)"
+          else
+            echo "CELL C PASSED — mock's existence/socket cleared, target narrows to open_session's WebSocket handshake"
+          fi
+      # Cell D for completeness: the full suite, mock disabled. The
+      # session-opening tests will try to open a real WebSocket to a port
+      # nothing is listening on — worth seeing whether that fails fast
+      # (connection refused) or hangs too.
+      - name: "Diagnostic: cell D — full suite, mock disabled"
+        run: |
+          set +e
+          SKIP_MOCK_BIDI=1 ACT="${ACT:-act}" timeout 60 uv run --project e2e pytest e2e/ -v
+          code=$?
+          set -e
+          if [ "$code" -eq 124 ]; then
+            echo "::warning::CELL D HUNG (timed out after 60s)"
+          elif [ "$code" -ne 0 ]; then
+            echo "::warning::CELL D FAILED for a reason other than a hang (exit $code) — check whether it was a fast, clean connection-refused"
+          else
+            echo "CELL D PASSED (unexpected: session-opening tests succeeded with nothing listening)"
           fi
       - run: just test
       # Always, not just on failure: a cancellation (the fate of the very
