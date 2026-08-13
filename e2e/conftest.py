@@ -100,29 +100,10 @@ def mock_bidi():
         yield
         return
     env = {**os.environ, "PORT": str(BIDI_PORT)}
-    # `stdin` is redirected below — it used to be left inherited from this
-    # process. Measured, not assumed, that this mattered: the CI-only hang
-    # this fixture was suspected of (never reproduced locally) survived
-    # direct evidence ruling out seven other candidates in turn — session-
-    # open timing, the guest's WebSocket handshake, list-tools, stdout
-    # framing, the six-variable environment `mcp.client.stdio` spawns `act`
-    # under, an early silent exit, and stdin-EOF gating. A bisect (this
-    # fixture disabled entirely via SKIP_MOCK_BIDI, one test needing no
-    # session or browser run alone) then passed cleanly in CI where the full
-    # suite always hung — the first green fastmcp-driven run of the whole
-    # investigation — implicating this Popen call specifically. Separately,
-    # `act` on that runner turned out to be an npm-installed Node.js shim,
-    # not the compiled binary: every `act run` there is really
-    # python -> node(shim) -> act, two node processes, not one. Redirecting
-    # stdin is the cheapest change consistent with both findings; it has NOT
-    # been proven that fd inheritance between this process and the shim's
-    # own child-spawning is the actual mechanism — that would need tracing
-    # the shim's source, which this investigation didn't reach.
     proc = subprocess.Popen(
         ["node", "server.mjs"],
         cwd=MOCK_DIR,
         env=env,
-        stdin=subprocess.DEVNULL,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
     )
