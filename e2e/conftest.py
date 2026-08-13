@@ -84,7 +84,21 @@ def mock_bidi():
     wait-for-port, terminate — belongs here: every test needs it up, and
     unlike `postgres`'s docker-compose Postgres this is a purpose-built test
     double with no lifecycle tooling of its own to defer to.
+
+    `SKIP_MOCK_BIDI=1` is a diagnostic escape hatch for the CI-only hang
+    under investigation: this is the only fixture in the fleet that spawns a
+    long-lived `subprocess.Popen` child (stdin not redirected, so it inherits
+    whatever file descriptors were open at fork time) that outlives every
+    test, started autouse/session-scoped before any MCP client exists — a
+    structural difference from every green component. Setting the var skips
+    the spawn entirely, so a test needing no session/browser (list_tools) can
+    run with that difference removed and nothing else changed, to see
+    whether the hang goes with it. Unset (the default), behavior is exactly
+    as before this diagnostic was added.
     """
+    if os.environ.get("SKIP_MOCK_BIDI"):
+        yield
+        return
     env = {**os.environ, "PORT": str(BIDI_PORT)}
     proc = subprocess.Popen(
         ["node", "server.mjs"],
