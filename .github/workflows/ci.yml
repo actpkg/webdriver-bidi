@@ -104,6 +104,34 @@ jobs:
           else
             echo "LIST-TOOLS SUCCEEDED"
           fi
+      # Fourth hypothesis: MCP over stdio uses stdout as the protocol
+      # channel, so a single stray byte written to stdout by the guest (or
+      # anything linked into it) before or instead of a JSON-RPC frame would
+      # corrupt framing — the client would then wait forever for a valid
+      # message with no error and no close, exactly matching every
+      # observation so far (list-tools unaffected because there stdout is
+      # plain output, not a protocol stream; the audit banner always visible
+      # because it is on stderr; `initialize` never completing). This feeds
+      # one raw `initialize` request on stdin and dumps whatever comes back
+      # on stdout, byte for byte (`cat -A` so stray whitespace/control
+      # characters are visible rather than invisible). stderr is discarded —
+      # the audit trail's content is already known and would only add noise
+      # here. `set -o pipefail` so a mid-pipe timeout/kill is reflected in
+      # `code` rather than swallowed by `cat -A`'s own clean exit.
+      - name: "Diagnostic: raw initialize response over stdout"
+        run: |
+          set +e
+          set -o pipefail
+          printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2026-07-28","capabilities":{},"clientInfo":{"name":"probe","version":"0"},"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":{}}}}' \
+            | timeout 20 act run target/wasm32-wasip2/release/component_webdriver_bidi.wasm --mcp --allow wasi:sockets 2>/dev/null \
+            | head -c 800 | cat -A
+          code=$?
+          set +o pipefail
+          set -e
+          echo "(end of probe output, pipeline exit $code)"
+          if [ "$code" -ne 0 ]; then
+            echo "::warning::PROBE TIMED OUT or failed (pipeline exit $code) — no valid response captured above"
+          fi
       - run: just test
 
   publish:
