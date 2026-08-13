@@ -82,6 +82,14 @@ jobs:
       # grant is denied and the e2e fails confusingly.
       - run: just init
       - run: just build
+      # `npm install` for the mock normally happens inside `just test`'s own
+      # recipe body, which runs after every diagnostic step below. Cell C
+      # needs the mock to actually start (unlike cells B and D, which
+      # disable it), so it needs node_modules present before it runs, not
+      # after — done here once, up front, so every diagnostic step below
+      # sees the same state `just test` will later re-install into
+      # (idempotent, so that later install is harmless, not wasted).
+      - run: cd tests/mock-bidi && npm install --silent
       # Diagnostic for a CI-only hang under active investigation: this calls
       # only the guest's `list-tools` export (what the MCP host asks for
       # during `initialize`, before serving begins) — no MCP, no stdio
