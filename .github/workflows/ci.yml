@@ -132,6 +132,43 @@ jobs:
           if [ "$code" -ne 0 ]; then
             echo "::warning::PROBE TIMED OUT or failed (pipeline exit $code) — no valid response captured above"
           fi
+      # Fifth angle: the pytest suite's `client` fixture never passes `env=`
+      # to fastmcp's StdioTransport, so the underlying `mcp.client.stdio`
+      # library spawns `act run` under a deliberately restricted environment
+      # — on POSIX just HOME, LOGNAME, PATH, SHELL, TERM, USER
+      # (`get_default_environment()` in the `mcp` package) — not the full job
+      # environment the two probes above ran under. If `ACT` is unset here,
+      # the justfile's/fixture's fallback command is resolved fresh inside
+      # that six-variable environment too, so it matters concretely what it
+      # resolves to.
+      - name: "Diagnostic: what ACT resolves to"
+        run: |
+          echo "ACT=[${ACT:-<unset>}]"
+          command -v act || echo "no bare 'act' on PATH"
+      # Reproduce the exact restricted environment above, still with zero
+      # Python/asyncio involved: if this hangs, the six-variable environment
+      # is implicated regardless of asyncio's subprocess machinery; if it
+      # answers cleanly like the previous probe, asyncio comes back into
+      # frame and this environment is exonerated. `$CMD` mirrors the
+      # fixture's own fallback (`os.environ.get("ACT", "act")`, word-split)
+      # rather than hardcoding `act`, so this tests what the suite actually
+      # invokes, not an assumption about it.
+      - name: "Diagnostic: raw initialize response under stdio_client's restricted env"
+        run: |
+          set +e
+          set -o pipefail
+          CMD=${ACT:-act}
+          printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2026-07-28","capabilities":{},"clientInfo":{"name":"probe","version":"0"},"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":{}}}}' \
+            | timeout 20 env -i HOME="$HOME" LOGNAME="$LOGNAME" PATH="$PATH" SHELL="$SHELL" TERM="$TERM" USER="$USER" \
+              $CMD run target/wasm32-wasip2/release/component_webdriver_bidi.wasm --mcp --allow wasi:sockets 2>/dev/null \
+            | head -c 800 | cat -A
+          code=$?
+          set +o pipefail
+          set -e
+          echo "(end of probe output, pipeline exit $code)"
+          if [ "$code" -ne 0 ]; then
+            echo "::warning::RESTRICTED-ENV PROBE TIMED OUT or failed (pipeline exit $code) — no valid response captured above"
+          fi
       - run: just test
 
   publish:
