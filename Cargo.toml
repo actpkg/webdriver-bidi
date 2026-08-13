@@ -1,7 +1,7 @@
 [package]
 name = "component-webdriver-bidi"
 description = "Drive a local browser over WebDriver BiDi — capability-gated, loopback-only"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 license = "MIT OR Apache-2.0"
 keywords = ["act", "webdriver", "bidi", "browser", "wasm"]
@@ -13,10 +13,10 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 schemars = "1"
 ciborium = "0.2"
-base64 = "0.22"
-tokio = { version = "1.51", features = ["rt", "net", "time", "macros", "io-util"] }
+base64 = "0.23"
+tokio = { version = "1.53", features = ["rt", "net", "time", "macros", "io-util"] }
 # default-features = false keeps native-tls out; it does not build for wasip2.
-tokio-tungstenite = { version = "0.24", default-features = false, features = ["handshake"] }
+tokio-tungstenite = { version = "0.30", default-features = false, features = ["handshake"] }
 futures-util = { version = "0.3", default-features = false, features = ["sink"] }
 
 [profile.release]

@@ -131,7 +131,7 @@ impl BidiConn {
         let log = &mut self.log;
 
         self.rt.block_on(async move {
-            timeout(dur, ws.send(Message::Text(payload)))
+            timeout(dur, ws.send(Message::Text(payload.into())))
                 .await
                 .map_err(|_| format!("timed out sending {method}"))?
                 .map_err(|e| format!("send {method}: {e}"))?;
@@ -144,7 +144,7 @@ impl BidiConn {
                     .map_err(|e| format!("websocket read: {e}"))?;
 
                 let text = match msg {
-                    Message::Text(t) => t,
+                    Message::Text(t) => t.to_string(),
                     Message::Binary(b) => String::from_utf8_lossy(&b).into_owned(),
                     Message::Close(_) => return Err("websocket closed by peer".to_string()),
                     // Ping/Pong are handled by tungstenite; ignore anything else.
