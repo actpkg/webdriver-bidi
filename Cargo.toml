@@ -1,7 +1,7 @@
 [package]
 name = "component-webdriver-bidi"
 description = "Drive a local browser over WebDriver BiDi — capability-gated, loopback-only"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2024"
 license = "MIT OR Apache-2.0"
 keywords = ["act", "webdriver", "bidi", "browser", "wasm"]
